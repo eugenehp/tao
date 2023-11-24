@@ -1,6 +1,6 @@
 [package]
 name = "tao"
-version = "0.24.0"
+version = "0.23.0"
 description = "Cross-platform window manager library."
 authors = [
   "Tauri Programme within The Commons Conservancy",
@@ -16,7 +16,7 @@ documentation = "https://docs.rs/tao"
 categories = [ "gui" ]
 
 [package.metadata.docs.rs]
-features = [ "rwh_04", "rwh_05", "rwh_06", "serde" ]
+features = [ "serde" ]
 default-target = "x86_64-unknown-linux-gnu"
 targets = [
   "i686-pc-windows-msvc",
@@ -26,11 +26,11 @@ targets = [
   "x86_64-apple-darwin"
 ]
 
-[features]
-default = [ "rwh_06" ]
-
 [workspace]
 members = [ "tao-macros" ]
+
+[features]
+default = [ ]
 
 [build-dependencies]
 cc = "1"
@@ -41,9 +41,7 @@ lazy_static = "1"
 libc = "0.2"
 log = "0.4"
 serde = { version = "1", optional = true, features = [ "serde_derive" ] }
-rwh_04 = { package = "raw-window-handle", version = "0.4", optional = true }
-rwh_05 = { package = "raw-window-handle", version = "0.5", features = [ "std" ], optional = true }
-rwh_06 = { package = "raw-window-handle", version = "0.6", features = [ "std" ], optional = true }
+raw-window-handle = "0.5"
 bitflags = "1"
 crossbeam-channel = "0.5"
 url = "2"
@@ -64,24 +62,23 @@ tao-macros = { version = "0.1.0", path = "./tao-macros" }
 
 [target."cfg(any(target_os = \"ios\", target_os = \"macos\"))".dependencies]
 objc = "0.2"
+cocoa = "0.24"
 
 [target."cfg(target_os = \"macos\")".dependencies]
-cocoa = "0.25"
 core-foundation = "0.9"
-core-graphics = "0.23"
+core-graphics = "0.22"
 dispatch = "0.2"
-scopeguard = "1.2"
+scopeguard = "1.1"
 png = "0.17"
 
 [target."cfg(target_os = \"windows\")".dependencies]
 parking_lot = "0.12"
 unicode-segmentation = "1.10"
 image = { version = "0.24", default-features = false }
-windows-implement = "0.52"
-windows-version = "0.1"
+windows-implement = "0.51"
 
   [target."cfg(target_os = \"windows\")".dependencies.windows]
-  version = "0.52"
+  version = "0.51"
   features = [
   "implement",
   "Win32_Devices_HumanInterfaceDevice",
@@ -113,10 +110,18 @@ windows-version = "0.1"
 ]
 
 [target."cfg(any(target_os = \"linux\", target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"openbsd\", target_os = \"netbsd\"))".dependencies]
+cairo-rs = "0.18"
+gio = "0.18"
+glib = "0.18"
+glib-sys = "0.18"
 gtk = "0.18"
+gdk = "0.18"
+gdk-sys = "0.18"
 gdkx11-sys = "0.18"
 gdkwayland-sys = "0.18.0"
+gdk-pixbuf = "0.18"
 x11-dl = "2.21"
 zbus = "3"
+uuid = { version = "1.3", features = [ "v4" ] }
 png = "0.17"
 parking_lot = "0.12"

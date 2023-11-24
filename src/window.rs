@@ -5,6 +5,8 @@
 //! The `Window` struct and associated types.
 use std::fmt;
 
+use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle};
+
 use crate::{
   dpi::{LogicalSize, PhysicalPosition, PhysicalSize, Pixel, PixelUnit, Position, Size},
   error::{ExternalError, NotSupportedError, OsError},
@@ -1190,19 +1192,6 @@ impl Window {
     self.window.drag_window()
   }
 
-  /// Resizes the window with the left mouse button until the button is released.
-  ///
-  /// There's no guarantee that this will work unless the left mouse button was pressed
-  /// immediately before this function is called.
-  ///
-  /// ## Platform-specific
-  ///
-  /// - **macOS / iOS / Android:** Always returns an [`ExternalError::NotSupported`].
-  #[inline]
-  pub fn drag_resize_window(&self, direction: ResizeDirection) -> Result<(), ExternalError> {
-    self.window.drag_resize_window(direction)
-  }
-
   /// Modifies whether the window catches cursor events.
   ///
   /// If `true`, the events are passed through the window such that any other window behind it receives them.
@@ -1282,45 +1271,28 @@ impl Window {
   }
 }
 
-#[cfg(feature = "rwh_04")]
-unsafe impl rwh_04::HasRawWindowHandle for Window {
-  fn raw_window_handle(&self) -> rwh_04::RawWindowHandle {
-    self.window.raw_window_handle_rwh_04()
+// Safety: objc runtime calls are unsafe
+unsafe impl HasRawWindowHandle for Window {
+  /// Returns a `raw_window_handle::RawWindowHandle` for the Window
+  ///
+  /// ## Platform-specific
+  ///
+  /// - **Android:** Only available after receiving the Resumed event and before Suspended. *If you*
+  /// *try to get the handle outside of that period, this function will panic*!
+  fn raw_window_handle(&self) -> raw_window_handle::RawWindowHandle {
+    self.window.raw_window_handle()
   }
 }
 
-#[cfg(feature = "rwh_05")]
-unsafe impl rwh_05::HasRawWindowHandle for Window {
-  fn raw_window_handle(&self) -> rwh_05::RawWindowHandle {
-    self.window.raw_window_handle_rwh_05()
+unsafe impl HasRawDisplayHandle for Window {
+  /// Returns a [`raw_window_handle::RawDisplayHandle`] used by the [`EventLoop`] that
+  /// created a window.
+  ///
+  /// [`EventLoop`]: crate::event_loop::EventLoop
+  fn raw_display_handle(&self) -> RawDisplayHandle {
+    self.window.raw_display_handle()
   }
 }
-
-#[cfg(feature = "rwh_05")]
-unsafe impl rwh_05::HasRawDisplayHandle for Window {
-  fn raw_display_handle(&self) -> rwh_05::RawDisplayHandle {
-    self.window.raw_display_handle_rwh_05()
-  }
-}
-
-#[cfg(feature = "rwh_06")]
-impl rwh_06::HasWindowHandle for Window {
-  fn window_handle(&self) -> Result<rwh_06::WindowHandle<'_>, rwh_06::HandleError> {
-    let raw = self.window.raw_window_handle_rwh_06()?;
-    // SAFETY: The window handle will never be deallocated while the window is alive.
-    Ok(unsafe { rwh_06::WindowHandle::borrow_raw(raw) })
-  }
-}
-
-#[cfg(feature = "rwh_06")]
-impl rwh_06::HasDisplayHandle for Window {
-  fn display_handle(&self) -> Result<rwh_06::DisplayHandle<'_>, rwh_06::HandleError> {
-    let raw = self.window.raw_display_handle_rwh_06()?;
-    // SAFETY: The window handle will never be deallocated while the window is alive.
-    Ok(unsafe { rwh_06::DisplayHandle::borrow_raw(raw) })
-  }
-}
-
 /// Describes the appearance of the mouse cursor.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -1549,51 +1521,4 @@ impl WindowSizeConstraints {
 
 /// A constant used to determine how much inside the window, the resize handler should appear (only used in Linux(gtk) and Windows).
 /// You probably need to scale it by the scale_factor of the window.
-
-pub enum ResizeDirection {
-  East,
-  North,
-  NorthEast,
-  NorthWest,
-  South,
-  SouthEast,
-  SouthWest,
-  West,
-}
-
-pub fn hit_test(
-  (left, top, right, bottom): (i32, i32, i32, i32),
-  cx: i32,
-  cy: i32,
-  scale_factor: f64,
-) -> Option<ResizeDirection> {
-  const LEFT: isize = 0b0001;
-  const RIGHT: isize = 0b0010;
-  const TOP: isize = 0b0100;
-  const BOTTOM: isize = 0b1000;
-  const TOPLEFT: isize = TOP | LEFT;
-  const TOPRIGHT: isize = TOP | RIGHT;
-  const BOTTOMLEFT: isize = BOTTOM | LEFT;
-  const BOTTOMRIGHT: isize = BOTTOM | RIGHT;
-
-  let inset = (5 as f64 * scale_factor) as i32;
-
-  #[rustfmt::skip]
-      let result =
-          (LEFT * (if cx < (left + inset) { 1 } else { 0 }))
-        | (RIGHT * (if cx >= (right - inset) { 1 } else { 0 }))
-        | (TOP * (if cy < (top + inset) { 1 } else { 0 }))
-        | (BOTTOM * (if cy >= (bottom - inset) { 1 } else { 0 }));
-
-  match result {
-    LEFT => Some(ResizeDirection::West),
-    RIGHT => Some(ResizeDirection::East),
-    TOP => Some(ResizeDirection::North),
-    BOTTOM => Some(ResizeDirection::South),
-    TOPLEFT => Some(ResizeDirection::NorthWest),
-    TOPRIGHT => Some(ResizeDirection::NorthEast),
-    BOTTOMLEFT => Some(ResizeDirection::SouthWest),
-    BOTTOMRIGHT => Some(ResizeDirection::SouthEast),
-    _ => None,
-  }
-}
+pub const BORDERLESS_RESIZE_INSET: i32 = 5;

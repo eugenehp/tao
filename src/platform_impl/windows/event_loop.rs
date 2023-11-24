@@ -8,6 +8,7 @@ mod runner;
 
 use crossbeam_channel::{self as channel, Receiver, Sender};
 use parking_lot::Mutex;
+use raw_window_handle::{RawDisplayHandle, WindowsDisplayHandle};
 use std::{
   cell::Cell,
   collections::VecDeque,
@@ -107,7 +108,6 @@ pub(crate) struct SubclassInput<T: 'static> {
   pub _file_drop_handler: Option<IDropTarget>,
   pub subclass_removed: Cell<bool>,
   pub recurse_depth: Cell<u32>,
-  pub event_loop_preferred_theme: Option<Theme>,
 }
 
 impl<T> SubclassInput<T> {
@@ -162,7 +162,7 @@ impl Default for PlatformSpecificEventLoopAttributes {
 pub struct EventLoopWindowTarget<T: 'static> {
   thread_id: u32,
   thread_msg_target: HWND,
-  pub(crate) preferred_theme: Option<Theme>,
+  pub(crate) theme: Theme,
   pub(crate) runner_shared: EventLoopRunnerShared<T>,
 }
 
@@ -185,7 +185,7 @@ impl<T: 'static> EventLoop<T> {
 
     let thread_msg_target = create_event_target_window();
 
-    try_app_theme(attributes.preferred_theme);
+    let theme = try_app_theme(attributes.preferred_theme);
 
     let send_thread_msg_target = thread_msg_target;
     thread::spawn(move || wait_thread(thread_id, send_thread_msg_target));
@@ -203,7 +203,7 @@ impl<T: 'static> EventLoop<T> {
           thread_id,
           thread_msg_target,
           runner_shared,
-          preferred_theme: attributes.preferred_theme,
+          theme,
         },
         _marker: PhantomData,
       },
@@ -311,16 +311,8 @@ impl<T> EventLoopWindowTarget<T> {
     monitor::from_point(x, y)
   }
 
-  #[cfg(feature = "rwh_05")]
-  pub fn raw_display_handle_rwh_05(&self) -> rwh_05::RawDisplayHandle {
-    rwh_05::RawDisplayHandle::Windows(rwh_05::WindowsDisplayHandle::empty())
-  }
-
-  #[cfg(feature = "rwh_06")]
-  pub fn raw_display_handle_rwh_06(&self) -> Result<rwh_06::RawDisplayHandle, rwh_06::HandleError> {
-    Ok(rwh_06::RawDisplayHandle::Windows(
-      rwh_06::WindowsDisplayHandle::new(),
-    ))
+  pub fn raw_display_handle(&self) -> RawDisplayHandle {
+    RawDisplayHandle::Windows(WindowsDisplayHandle::empty())
   }
 
   pub fn set_device_event_filter(&self, filter: DeviceEventFilter) {
@@ -1028,12 +1020,10 @@ unsafe fn public_window_callback_inner<T: 'static>(
     }
 
     win32wm::WM_EXITSIZEMOVE => {
-      let mut state = subclass_input.window_state.lock();
-      if state.dragging {
-        state.dragging = false;
-        let _ = unsafe { PostMessageW(window, WM_LBUTTONUP, WPARAM::default(), lparam) };
-      }
-      state.set_window_flags_in_place(|f| f.remove(WindowFlags::MARKER_IN_SIZE_MOVE));
+      subclass_input
+        .window_state
+        .lock()
+        .set_window_flags_in_place(|f| f.remove(WindowFlags::MARKER_IN_SIZE_MOVE));
       result = ProcResult::Value(LRESULT(0));
     }
 
@@ -2057,10 +2047,7 @@ unsafe fn public_window_callback_inner<T: 'static>(
       let preferred_theme = subclass_input.window_state.lock().preferred_theme;
 
       if preferred_theme.is_none() {
-        let new_theme = try_window_theme(
-          window,
-          preferred_theme.or(subclass_input.event_loop_preferred_theme),
-        );
+        let new_theme = try_window_theme(window, preferred_theme);
         let mut window_state = subclass_input.window_state.lock();
 
         if window_state.current_theme != new_theme {
@@ -2126,10 +2113,11 @@ unsafe fn public_window_callback_inner<T: 'static>(
     }
 
     win32wm::WM_NCHITTEST => {
-      let window_state = subclass_input.window_state.lock();
       // Allow resizing unmaximized borderless window
       if !util::is_maximized(window).unwrap_or(false)
-        && !window_state
+        && !subclass_input
+          .window_state
+          .lock()
           .window_flags()
           .contains(WindowFlags::MARKER_DECORATIONS)
       {
@@ -2139,19 +2127,7 @@ unsafe fn public_window_callback_inner<T: 'static>(
           i32::from(util::GET_Y_LPARAM(lparam)),
         );
 
-        let mut rect = RECT::default();
-        let _ = GetClientRect(window, &mut rect);
-
-        let hit_result = crate::window::hit_test(
-          (rect.left, rect.top, rect.right, rect.bottom),
-          cx,
-          cy,
-          window_state.scale_factor,
-        )
-        .map(|d| d.to_win32())
-        .unwrap_or(HTCLIENT);
-
-        result = ProcResult::Value(LRESULT(hit_result as _));
+        result = ProcResult::Value(crate::platform_impl::hit_test(window.0 as _, cx, cy));
       } else {
         result = ProcResult::DefSubclassProc;
       }

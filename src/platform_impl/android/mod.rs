@@ -9,7 +9,7 @@ use crate::{
   event_loop::{self, ControlFlow},
   keyboard::{Key, KeyCode, KeyLocation, NativeKeyCode},
   monitor,
-  window::{self, ResizeDirection, Theme, WindowSizeConstraints},
+  window::{self, Theme, WindowSizeConstraints},
 };
 use crossbeam_channel::{Receiver, Sender};
 use ndk::{
@@ -18,6 +18,9 @@ use ndk::{
   looper::{ForeignLooper, Poll, ThreadLooper},
 };
 use ndk_sys::AKeyEvent_getKeyCode;
+use raw_window_handle::{
+  AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
+};
 use std::{
   collections::VecDeque,
   convert::TryInto,
@@ -443,18 +446,8 @@ impl<T: 'static> EventLoopWindowTarget<T> {
     v
   }
 
-  #[cfg(feature = "rwh_05")]
-  #[inline]
-  pub fn raw_display_handle_rwh_05(&self) -> rwh_05::RawDisplayHandle {
-    rwh_05::RawDisplayHandle::Android(rwh_05::AndroidDisplayHandle::empty())
-  }
-
-  #[cfg(feature = "rwh_06")]
-  #[inline]
-  pub fn raw_display_handle_rwh_06(&self) -> Result<rwh_06::RawDisplayHandle, rwh_06::HandleError> {
-    Ok(rwh_06::RawDisplayHandle::Android(
-      rwh_06::AndroidDisplayHandle::new(),
-    ))
+  pub fn raw_display_handle(&self) -> RawDisplayHandle {
+    RawDisplayHandle::Android(AndroidDisplayHandle::empty())
   }
 
   pub fn cursor_position(&self) -> Result<PhysicalPosition<f64>, error::ExternalError> {
@@ -677,15 +670,6 @@ impl Window {
     ))
   }
 
-  pub fn drag_resize_window(
-    &self,
-    _direction: ResizeDirection,
-  ) -> Result<(), error::ExternalError> {
-    Err(error::ExternalError::NotSupported(
-      error::NotSupportedError::new(),
-    ))
-  }
-
   pub fn set_ignore_cursor_events(&self, _ignore: bool) -> Result<(), error::ExternalError> {
     Err(error::ExternalError::NotSupported(
       error::NotSupportedError::new(),
@@ -697,55 +681,21 @@ impl Window {
     Ok((0, 0).into())
   }
 
-  #[cfg(feature = "rwh_04")]
-  pub fn raw_window_handle_rwh_04(&self) -> rwh_04::RawWindowHandle {
+  pub fn raw_window_handle(&self) -> RawWindowHandle {
     // TODO: Use main activity instead?
-    let mut handle = rwh_04::AndroidNdkHandle::empty();
+    let mut handle = AndroidNdkWindowHandle::empty();
     if let Some(w) = ndk_glue::window_manager() {
       handle.a_native_window = w.as_obj().as_raw() as *mut _;
     } else {
       panic!("Cannot get the native window, it's null and will always be null before Event::Resumed and after Event::Suspended. Make sure you only call this function between those events.");
     };
-    rwh_04::RawWindowHandle::AndroidNdk(handle)
+    RawWindowHandle::AndroidNdk(handle)
   }
 
-  #[cfg(feature = "rwh_05")]
-  pub fn raw_window_handle_rwh_05(&self) -> rwh_05::RawWindowHandle {
-    // TODO: Use main activity instead?
-    let mut handle = rwh_05::AndroidNdkWindowHandle::empty();
-    if let Some(w) = ndk_glue::window_manager() {
-      handle.a_native_window = w.as_obj().as_raw() as *mut _;
-    } else {
-      panic!("Cannot get the native window, it's null and will always be null before Event::Resumed and after Event::Suspended. Make sure you only call this function between those events.");
-    };
-    rwh_05::RawWindowHandle::AndroidNdk(handle)
+  pub fn raw_display_handle(&self) -> RawDisplayHandle {
+    RawDisplayHandle::Android(AndroidDisplayHandle::empty())
   }
 
-  #[cfg(feature = "rwh_05")]
-  pub fn raw_display_handle_rwh_05(&self) -> rwh_05::RawDisplayHandle {
-    rwh_05::RawDisplayHandle::Android(rwh_05::AndroidDisplayHandle::empty())
-  }
-
-  #[cfg(feature = "rwh_06")]
-  pub fn raw_window_handle_rwh_06(&self) -> Result<rwh_06::RawWindowHandle, rwh_06::HandleError> {
-    // TODO: Use main activity instead?
-    if let Some(w) = ndk_glue::window_manager() {
-      let native_window =
-        unsafe { std::ptr::NonNull::new_unchecked(w.as_obj().as_raw() as *mut _) };
-      // native_window shuldn't be null
-      let handle = rwh_06::AndroidNdkWindowHandle::new(native_window);
-      Ok(rwh_06::RawWindowHandle::AndroidNdk(handle))
-    } else {
-      Err(rwh_06::HandleError::Unavailable)
-    }
-  }
-
-  #[cfg(feature = "rwh_06")]
-  pub fn raw_display_handle_rwh_06(&self) -> Result<rwh_06::RawDisplayHandle, rwh_06::HandleError> {
-    Ok(rwh_06::RawDisplayHandle::Android(
-      rwh_06::AndroidDisplayHandle::new(),
-    ))
-  }
   pub fn config(&self) -> Configuration {
     CONFIG.read().unwrap().clone()
   }

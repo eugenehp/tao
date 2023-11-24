@@ -147,12 +147,8 @@
 )]
 #![deny(rustdoc::broken_intra_doc_links)]
 
-#[cfg(feature = "rwh_04")]
-pub use rwh_04;
-#[cfg(feature = "rwh_05")]
-pub use rwh_05;
-#[cfg(feature = "rwh_06")]
-pub use rwh_06;
+#[cfg(target_os = "android")]
+pub use tao_macros::{android_fn, generate_package_name};
 
 #[allow(unused_imports)]
 #[macro_use]

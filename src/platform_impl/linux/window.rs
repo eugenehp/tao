@@ -12,11 +12,13 @@ use std::{
   },
 };
 
-use gtk::{
-  gdk::WindowState,
-  glib::{self, translate::ToGlibPtr},
-};
+use gdk::{WindowEdge, WindowState};
+use glib::translate::ToGlibPtr;
 use gtk::{prelude::*, Settings};
+use raw_window_handle::{
+  RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle, XlibDisplayHandle,
+  XlibWindowHandle,
+};
 
 use crate::{
   dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, Position, Size},
@@ -24,8 +26,8 @@ use crate::{
   icon::Icon,
   monitor::MonitorHandle as RootMonitorHandle,
   window::{
-    CursorIcon, Fullscreen, ProgressBarState, ResizeDirection, Theme, UserAttentionType,
-    WindowAttributes, WindowSizeConstraints,
+    CursorIcon, Fullscreen, ProgressBarState, Theme, UserAttentionType, WindowAttributes,
+    WindowSizeConstraints, BORDERLESS_RESIZE_INSET,
   },
 };
 
@@ -538,16 +540,6 @@ impl Window {
     Ok(())
   }
 
-  pub fn drag_resize_window(&self, direction: ResizeDirection) -> Result<(), ExternalError> {
-    if let Err(e) = self
-      .window_requests_tx
-      .send((self.window_id, WindowRequest::DragResizeWindow(direction)))
-    {
-      log::warn!("Fail to send drag window request: {}", e);
-    }
-    Ok(())
-  }
-
   pub fn set_fullscreen(&self, fullscreen: Option<Fullscreen>) {
     self.fullscreen.replace(fullscreen.clone());
     if let Err(e) = self
@@ -710,10 +702,9 @@ impl Window {
 
   pub fn primary_monitor(&self) -> Option<RootMonitorHandle> {
     let display = self.window.display();
-    display.primary_monitor().map(|monitor| {
-      let handle = MonitorHandle { monitor };
-      RootMonitorHandle { inner: handle }
-    })
+    let monitor = display.primary_monitor().unwrap();
+    let handle = MonitorHandle { monitor };
+    Some(RootMonitorHandle { inner: handle })
   }
 
   #[inline]
@@ -726,61 +717,35 @@ impl Window {
     self.window.display().backend().is_wayland()
   }
 
-  #[cfg(feature = "rwh_04")]
-  #[inline]
-  pub fn raw_window_handle_rwh_04(&self) -> rwh_04::RawWindowHandle {
+  pub fn raw_window_handle(&self) -> RawWindowHandle {
     if self.is_wayland() {
-      let mut window_handle = rwh_04::WaylandHandle::empty();
+      let mut window_handle = WaylandWindowHandle::empty();
       if let Some(window) = self.window.window() {
         window_handle.surface =
           unsafe { gdk_wayland_sys::gdk_wayland_window_get_wl_surface(window.as_ptr() as *mut _) };
       }
 
-      rwh_04::RawWindowHandle::Wayland(window_handle)
+      RawWindowHandle::Wayland(window_handle)
     } else {
-      let mut window_handle = rwh_04::XlibHandle::empty();
+      let mut window_handle = XlibWindowHandle::empty();
       unsafe {
         if let Some(window) = self.window.window() {
           window_handle.window = gdk_x11_sys::gdk_x11_window_get_xid(window.as_ptr() as *mut _);
         }
       }
-      rwh_04::RawWindowHandle::Xlib(window_handle)
+      RawWindowHandle::Xlib(window_handle)
     }
   }
 
-  #[cfg(feature = "rwh_05")]
-  #[inline]
-  pub fn raw_window_handle_rwh_05(&self) -> rwh_05::RawWindowHandle {
+  pub fn raw_display_handle(&self) -> RawDisplayHandle {
     if self.is_wayland() {
-      let mut window_handle = rwh_05::WaylandWindowHandle::empty();
-      if let Some(window) = self.window.window() {
-        window_handle.surface =
-          unsafe { gdk_wayland_sys::gdk_wayland_window_get_wl_surface(window.as_ptr() as *mut _) };
-      }
-
-      rwh_05::RawWindowHandle::Wayland(window_handle)
-    } else {
-      let mut window_handle = rwh_05::XlibWindowHandle::empty();
-      unsafe {
-        if let Some(window) = self.window.window() {
-          window_handle.window = gdk_x11_sys::gdk_x11_window_get_xid(window.as_ptr() as *mut _);
-        }
-      }
-      rwh_05::RawWindowHandle::Xlib(window_handle)
-    }
-  }
-
-  #[cfg(feature = "rwh_05")]
-  #[inline]
-  pub fn raw_display_handle_rwh_05(&self) -> rwh_05::RawDisplayHandle {
-    if self.is_wayland() {
-      let mut display_handle = rwh_05::WaylandDisplayHandle::empty();
+      let mut display_handle = WaylandDisplayHandle::empty();
       display_handle.display = unsafe {
         gdk_wayland_sys::gdk_wayland_display_get_wl_display(self.window.display().as_ptr() as *mut _)
       };
-      rwh_05::RawDisplayHandle::Wayland(display_handle)
+      RawDisplayHandle::Wayland(display_handle)
     } else {
-      let mut display_handle = rwh_05::XlibDisplayHandle::empty();
+      let mut display_handle = XlibDisplayHandle::empty();
       unsafe {
         if let Ok(xlib) = x11_dl::xlib::Xlib::open() {
           let display = (xlib.XOpenDisplay)(std::ptr::null());
@@ -789,52 +754,7 @@ impl Window {
         }
       }
 
-      rwh_05::RawDisplayHandle::Xlib(display_handle)
-    }
-  }
-
-  #[cfg(feature = "rwh_06")]
-  #[inline]
-  pub fn raw_window_handle_rwh_06(&self) -> Result<rwh_06::RawWindowHandle, rwh_06::HandleError> {
-    if let Some(window) = self.window.window() {
-      if self.is_wayland() {
-        let surface =
-          unsafe { gdk_wayland_sys::gdk_wayland_window_get_wl_surface(window.as_ptr() as *mut _) };
-        let surface = unsafe { std::ptr::NonNull::new_unchecked(surface) };
-        let window_handle = rwh_06::WaylandWindowHandle::new(surface);
-        Ok(rwh_06::RawWindowHandle::Wayland(window_handle))
-      } else {
-        let xid = unsafe { gdk_x11_sys::gdk_x11_window_get_xid(window.as_ptr() as *mut _) };
-        let window_handle = rwh_06::XlibWindowHandle::new(xid);
-        Ok(rwh_06::RawWindowHandle::Xlib(window_handle))
-      }
-    } else {
-      Err(rwh_06::HandleError::Unavailable)
-    }
-  }
-
-  #[cfg(feature = "rwh_06")]
-  #[inline]
-  pub fn raw_display_handle_rwh_06(&self) -> Result<rwh_06::RawDisplayHandle, rwh_06::HandleError> {
-    if self.is_wayland() {
-      let display = unsafe {
-        gdk_wayland_sys::gdk_wayland_display_get_wl_display(self.window.display().as_ptr() as *mut _)
-      };
-      let display = unsafe { std::ptr::NonNull::new_unchecked(display) };
-      let display_handle = rwh_06::WaylandDisplayHandle::new(display);
-      Ok(rwh_06::RawDisplayHandle::Wayland(display_handle))
-    } else {
-      if let Ok(xlib) = x11_dl::xlib::Xlib::open() {
-        unsafe {
-          let display = (xlib.XOpenDisplay)(std::ptr::null());
-          let screen = (xlib.XDefaultScreen)(display) as _;
-          let display = std::ptr::NonNull::new_unchecked(display as _);
-          let display_handle = rwh_06::XlibDisplayHandle::new(Some(display), screen);
-          Ok(rwh_06::RawDisplayHandle::Xlib(display_handle))
-        }
-      } else {
-        Err(rwh_06::HandleError::Unavailable)
-      }
+      RawDisplayHandle::Xlib(display_handle)
     }
   }
 
@@ -890,7 +810,6 @@ pub enum WindowRequest {
   Minimized(bool),
   Maximized(bool),
   DragWindow,
-  DragResizeWindow(ResizeDirection),
   Fullscreen(Option<Fullscreen>),
   Decorations(bool),
   AlwaysOnBottom(bool),
@@ -907,6 +826,44 @@ pub enum WindowRequest {
   },
   SetVisibleOnAllWorkspaces(bool),
   ProgressBarState(ProgressBarState),
+}
+
+pub fn hit_test(window: &gdk::Window, cx: f64, cy: f64) -> WindowEdge {
+  let (left, top) = window.position();
+  let (w, h) = (window.width(), window.height());
+  let (right, bottom) = (left + w, top + h);
+  let (cx, cy) = (cx as i32, cy as i32);
+
+  const LEFT: i32 = 0b0001;
+  const RIGHT: i32 = 0b0010;
+  const TOP: i32 = 0b0100;
+  const BOTTOM: i32 = 0b1000;
+  const TOPLEFT: i32 = TOP | LEFT;
+  const TOPRIGHT: i32 = TOP | RIGHT;
+  const BOTTOMLEFT: i32 = BOTTOM | LEFT;
+  const BOTTOMRIGHT: i32 = BOTTOM | RIGHT;
+
+  let inset = BORDERLESS_RESIZE_INSET * window.scale_factor();
+  #[rustfmt::skip]
+  let result =
+      (LEFT * (if cx < (left + inset) { 1 } else { 0 }))
+    | (RIGHT * (if cx >= (right - inset) { 1 } else { 0 }))
+    | (TOP * (if cy < (top + inset) { 1 } else { 0 }))
+    | (BOTTOM * (if cy >= (bottom - inset) { 1 } else { 0 }));
+
+  match result {
+    LEFT => WindowEdge::West,
+    TOP => WindowEdge::North,
+    RIGHT => WindowEdge::East,
+    BOTTOM => WindowEdge::South,
+    TOPLEFT => WindowEdge::NorthWest,
+    TOPRIGHT => WindowEdge::NorthEast,
+    BOTTOMLEFT => WindowEdge::SouthWest,
+    BOTTOMRIGHT => WindowEdge::SouthEast,
+    // we return `WindowEdge::__Unknown` to be ignored later.
+    // we must return 8 or bigger, otherwise it will be the same as one of the other 7 variants of `WindowEdge` enum.
+    _ => WindowEdge::__Unknown(8),
+  }
 }
 
 impl Drop for Window {

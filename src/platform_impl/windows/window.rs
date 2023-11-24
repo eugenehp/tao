@@ -6,6 +6,9 @@
 
 use mem::MaybeUninit;
 use parking_lot::Mutex;
+use raw_window_handle::{
+  RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
+};
 use std::{
   cell::{Cell, RefCell},
   ffi::OsStr,
@@ -18,9 +21,7 @@ use crossbeam_channel as channel;
 use windows::{
   core::PCWSTR,
   Win32::{
-    Foundation::{
-      self as win32f, HINSTANCE, HMODULE, HWND, LPARAM, LRESULT, POINT, POINTS, RECT, WPARAM,
-    },
+    Foundation::{self as win32f, HINSTANCE, HMODULE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
     Graphics::{
       Dwm::{DwmEnableBlurBehindWindow, DWM_BB_BLURREGION, DWM_BB_ENABLE, DWM_BLURBEHIND},
       Gdi::*,
@@ -50,8 +51,8 @@ use crate::{
     OsError, Parent, PlatformSpecificWindowBuilderAttributes, WindowId,
   },
   window::{
-    CursorIcon, Fullscreen, ProgressBarState, ProgressState, ResizeDirection, Theme,
-    UserAttentionType, WindowAttributes, WindowSizeConstraints,
+    CursorIcon, Fullscreen, ProgressBarState, ProgressState, Theme, UserAttentionType,
+    WindowAttributes, WindowSizeConstraints, BORDERLESS_RESIZE_INSET,
   },
 };
 
@@ -122,7 +123,6 @@ impl Window {
           _file_drop_handler: file_drop_handler,
           subclass_removed: Cell::new(false),
           recurse_depth: Cell::new(0),
-          event_loop_preferred_theme: event_loop.preferred_theme,
         };
 
         event_loop::subclass_window(win.window.0, subclass_input);
@@ -360,51 +360,17 @@ impl Window {
     util::get_instance_handle()
   }
 
-  #[cfg(feature = "rwh_04")]
   #[inline]
-  pub fn raw_window_handle_rwh_04(&self) -> rwh_04::RawWindowHandle {
-    let mut window_handle = rwh_04::Win32Handle::empty();
+  pub fn raw_window_handle(&self) -> RawWindowHandle {
+    let mut window_handle = Win32WindowHandle::empty();
     window_handle.hwnd = self.window.0 .0 as *mut _;
-    let hinstance = util::GetWindowLongPtrW(self.hwnd(), GWLP_HINSTANCE);
-    window_handle.hinstance = hinstance as *mut _;
-    rwh_04::RawWindowHandle::Win32(window_handle)
+    window_handle.hinstance = self.hinstance().0 as *mut _;
+    RawWindowHandle::Win32(window_handle)
   }
 
-  #[cfg(feature = "rwh_05")]
   #[inline]
-  pub fn raw_window_handle_rwh_05(&self) -> rwh_05::RawWindowHandle {
-    let mut window_handle = rwh_05::Win32WindowHandle::empty();
-    window_handle.hwnd = self.window.0 .0 as *mut _;
-    let hinstance = util::GetWindowLongPtrW(self.hwnd(), GWLP_HINSTANCE);
-    window_handle.hinstance = hinstance as *mut _;
-    rwh_05::RawWindowHandle::Win32(window_handle)
-  }
-
-  #[cfg(feature = "rwh_05")]
-  #[inline]
-  pub fn raw_display_handle_rwh_05(&self) -> rwh_05::RawDisplayHandle {
-    rwh_05::RawDisplayHandle::Windows(rwh_05::WindowsDisplayHandle::empty())
-  }
-
-  #[cfg(feature = "rwh_06")]
-  #[inline]
-  pub fn raw_window_handle_rwh_06(&self) -> Result<rwh_06::RawWindowHandle, rwh_06::HandleError> {
-    let mut window_handle = rwh_06::Win32WindowHandle::new(unsafe {
-      // SAFETY: Handle will never be zero.
-      let window = self.window.0 .0;
-      std::num::NonZeroIsize::new_unchecked(window)
-    });
-    let hinstance = util::GetWindowLongPtrW(self.hwnd(), GWLP_HINSTANCE);
-    window_handle.hinstance = std::num::NonZeroIsize::new(hinstance);
-    Ok(rwh_06::RawWindowHandle::Win32(window_handle))
-  }
-
-  #[cfg(feature = "rwh_06")]
-  #[inline]
-  pub fn raw_display_handle_rwh_06(&self) -> Result<rwh_06::RawDisplayHandle, rwh_06::HandleError> {
-    Ok(rwh_06::RawDisplayHandle::Windows(
-      rwh_06::WindowsDisplayHandle::new(),
-    ))
+  pub fn raw_display_handle(&self) -> RawDisplayHandle {
+    RawDisplayHandle::Windows(WindowsDisplayHandle::empty())
   }
 
   #[inline]
@@ -477,40 +443,21 @@ impl Window {
     }
   }
 
-  fn handle_os_dragging(&self, wparam: WPARAM) -> Result<(), ExternalError> {
-    let points = {
-      let mut pos = unsafe { mem::zeroed() };
-      unsafe { GetCursorPos(&mut pos)? };
-      pos
-    };
-    let points = POINTS {
-      x: points.x as i16,
-      y: points.y as i16,
-    };
-    unsafe { ReleaseCapture()? };
-
-    self.window_state.lock().dragging = true;
-
-    unsafe {
-      PostMessageW(
-        self.hwnd(),
-        WM_NCLBUTTONDOWN,
-        wparam,
-        LPARAM(&points as *const _ as _),
-      )?
-    };
-
-    Ok(())
-  }
-
   #[inline]
   pub fn drag_window(&self) -> Result<(), ExternalError> {
-    self.handle_os_dragging(WPARAM(HTCAPTION as _))
-  }
+    let mut pos = POINT::default();
+    unsafe {
+      GetCursorPos(&mut pos)?;
+      ReleaseCapture()?;
+      PostMessageW(
+        self.window.0,
+        WM_NCLBUTTONDOWN,
+        WPARAM(HTCAPTION as _),
+        util::MAKELPARAM(pos.x as i16, pos.y as i16),
+      )?;
+    }
 
-  #[inline]
-  pub fn drag_resize_window(&self, direction: ResizeDirection) -> Result<(), ExternalError> {
-    self.handle_os_dragging(WPARAM(direction.to_win32() as _))
+    Ok(())
   }
 
   #[inline]
@@ -994,6 +941,7 @@ impl Drop for Window {
 }
 
 /// A simple non-owning wrapper around a window.
+#[doc(hidden)]
 #[derive(Clone)]
 pub struct WindowWrapper(HWND);
 
@@ -1113,7 +1061,7 @@ unsafe fn init<T: 'static>(
   // window for the first time).
   let current_theme = try_window_theme(
     real_window.0,
-    attributes.preferred_theme.or(event_loop.preferred_theme),
+    attributes.preferred_theme.or(Some(event_loop.theme)),
   );
 
   let window_state = {
@@ -1122,7 +1070,7 @@ unsafe fn init<T: 'static>(
       None,
       scale_factor,
       current_theme,
-      attributes.preferred_theme,
+      pl_attribs.preferred_theme,
     );
     let window_state = Arc::new(Mutex::new(window_state));
     WindowState::set_window_flags(window_state.lock(), real_window.0, |f| *f = window_flags);
@@ -1356,17 +1304,53 @@ pub(crate) unsafe fn set_skip_taskbar(hwnd: HWND, skip: bool) {
   }
 }
 
-impl ResizeDirection {
-  pub(crate) fn to_win32(&self) -> u32 {
-    match self {
-      ResizeDirection::East => HTRIGHT,
-      ResizeDirection::North => HTTOP,
-      ResizeDirection::NorthEast => HTTOPRIGHT,
-      ResizeDirection::NorthWest => HTTOPLEFT,
-      ResizeDirection::South => HTBOTTOM,
-      ResizeDirection::SouthEast => HTBOTTOMRIGHT,
-      ResizeDirection::SouthWest => HTBOTTOMLEFT,
-      ResizeDirection::West => HTLEFT,
+pub fn hit_test(hwnd: isize, cx: i32, cy: i32) -> LRESULT {
+  let hwnd = HWND(hwnd);
+  let mut window_rect = RECT::default();
+  unsafe {
+    if GetWindowRect(hwnd, &mut window_rect).is_ok() {
+      const CLIENT: isize = 0b0000;
+      const LEFT: isize = 0b0001;
+      const RIGHT: isize = 0b0010;
+      const TOP: isize = 0b0100;
+      const BOTTOM: isize = 0b1000;
+      const TOPLEFT: isize = TOP | LEFT;
+      const TOPRIGHT: isize = TOP | RIGHT;
+      const BOTTOMLEFT: isize = BOTTOM | LEFT;
+      const BOTTOMRIGHT: isize = BOTTOM | RIGHT;
+
+      let RECT {
+        left,
+        right,
+        bottom,
+        top,
+      } = window_rect;
+
+      let dpi = hwnd_dpi(hwnd);
+      let scale_factor = dpi_to_scale_factor(dpi);
+      let inset = (BORDERLESS_RESIZE_INSET as f64 * scale_factor) as i32;
+
+      #[rustfmt::skip]
+      let result =
+          (LEFT * (if cx < (left + inset) { 1 } else { 0 }))
+        | (RIGHT * (if cx >= (right - inset) { 1 } else { 0 }))
+        | (TOP * (if cy < (top + inset) { 1 } else { 0 }))
+        | (BOTTOM * (if cy >= (bottom - inset) { 1 } else { 0 }));
+
+      LRESULT(match result {
+        CLIENT => HTCLIENT,
+        LEFT => HTLEFT,
+        RIGHT => HTRIGHT,
+        TOP => HTTOP,
+        BOTTOM => HTBOTTOM,
+        TOPLEFT => HTTOPLEFT,
+        TOPRIGHT => HTTOPRIGHT,
+        BOTTOMLEFT => HTBOTTOMLEFT,
+        BOTTOMRIGHT => HTBOTTOMRIGHT,
+        _ => HTNOWHERE,
+      } as _)
+    } else {
+      LRESULT(HTNOWHERE as _)
     }
   }
 }

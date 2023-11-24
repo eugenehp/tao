@@ -10,7 +10,7 @@ use windows::{
   core::{s, w, PCSTR, PSTR},
   Win32::{
     Foundation::{BOOL, HANDLE, HMODULE, HWND},
-    System::LibraryLoader::*,
+    System::{LibraryLoader::*, SystemInformation::OSVERSIONINFOW},
     UI::{Accessibility::*, WindowsAndMessaging::*},
   },
 };
@@ -23,9 +23,27 @@ static HUXTHEME: Lazy<HMODULE> =
   Lazy::new(|| unsafe { LoadLibraryA(s!("uxtheme.dll")).unwrap_or_default() });
 
 static WIN10_BUILD_VERSION: Lazy<Option<u32>> = Lazy::new(|| {
-  let version = windows_version::OsVersion::current();
-  if version.major == 10 && version.minor == 0 {
-    Some(version.build)
+  type RtlGetVersion = unsafe extern "system" fn(*mut OSVERSIONINFOW) -> i32;
+
+  let handle = get_function!("ntdll.dll", RtlGetVersion);
+
+  let mut vi = OSVERSIONINFOW {
+    dwOSVersionInfoSize: 0,
+    dwMajorVersion: 0,
+    dwMinorVersion: 0,
+    dwBuildNumber: 0,
+    dwPlatformId: 0,
+    szCSDVersion: [0; 128],
+  };
+
+  if let Some(rtl_get_version) = handle {
+    let status = unsafe { (rtl_get_version)(&mut vi as _) };
+
+    if status >= 0 && vi.dwMajorVersion == 10 && vi.dwMinorVersion == 0 {
+      Some(vi.dwBuildNumber)
+    } else {
+      None
+    }
   } else {
     None
   }
@@ -41,7 +59,7 @@ static DARK_MODE_SUPPORTED: Lazy<bool> = Lazy::new(|| {
 });
 
 /// Attempts to set dark mode for the app
-pub fn try_app_theme(preferred_theme: Option<Theme>) {
+pub fn try_app_theme(preferred_theme: Option<Theme>) -> Theme {
   if *DARK_MODE_SUPPORTED {
     let is_dark_mode = match preferred_theme {
       Some(theme) => theme == Theme::Dark,
@@ -50,6 +68,12 @@ pub fn try_app_theme(preferred_theme: Option<Theme>) {
 
     allow_dark_mode_for_app(is_dark_mode);
     refresh_immersive_color_policy_state();
+    match is_dark_mode {
+      true => Theme::Dark,
+      false => Theme::Light,
+    }
+  } else {
+    Theme::Light
   }
 }
 
@@ -136,13 +160,14 @@ pub fn try_window_theme(hwnd: HWND, preferred_theme: Option<Theme>) -> Theme {
       None => should_use_dark_mode(),
     };
 
-    let theme = match is_dark_mode {
-      true => Theme::Dark,
-      false => Theme::Light,
+    let theme = if is_dark_mode {
+      Theme::Dark
+    } else {
+      Theme::Light
     };
 
     allow_dark_mode_for_window(hwnd, is_dark_mode);
-    refresh_titlebar_theme_color(hwnd, is_dark_mode);
+    refresh_titlebar_theme_color(hwnd);
 
     theme
   } else {
@@ -172,6 +197,29 @@ fn allow_dark_mode_for_window(hwnd: HWND, is_dark_mode: bool) {
   }
 }
 
+fn is_dark_mode_allowed_for_window(hwnd: HWND) -> bool {
+  const UXTHEME_ISDARKMODEALLOWEDFORWINDOW_ORDINAL: u16 = 137;
+  type IsDarkModeAllowedForWindow = unsafe extern "system" fn(HWND) -> bool;
+  static IS_DARK_MODE_ALLOWED_FOR_WINDOW: Lazy<Option<IsDarkModeAllowedForWindow>> =
+    Lazy::new(|| unsafe {
+      if HUXTHEME.is_invalid() {
+        return None;
+      }
+
+      GetProcAddress(
+        *HUXTHEME,
+        PCSTR::from_raw(UXTHEME_ISDARKMODEALLOWEDFORWINDOW_ORDINAL as usize as *mut _),
+      )
+      .map(|handle| std::mem::transmute(handle))
+    });
+
+  if let Some(_is_dark_mode_allowed_for_window) = *IS_DARK_MODE_ALLOWED_FOR_WINDOW {
+    unsafe { _is_dark_mode_allowed_for_window(hwnd) }
+  } else {
+    false
+  }
+}
+
 type SetWindowCompositionAttribute =
   unsafe extern "system" fn(HWND, *mut WINDOWCOMPOSITIONATTRIBDATA) -> BOOL;
 static SET_WINDOW_COMPOSITION_ATTRIBUTE: Lazy<Option<SetWindowCompositionAttribute>> =
@@ -186,9 +234,9 @@ struct WINDOWCOMPOSITIONATTRIBDATA {
   cbData: usize,
 }
 
-fn refresh_titlebar_theme_color(hwnd: HWND, is_dark_mode: bool) {
-  // SetWindowCompositionAttribute needs a bigbool (i32), not bool.
-  let mut is_dark_mode_bigbool: i32 = is_dark_mode.into();
+fn refresh_titlebar_theme_color(hwnd: HWND) {
+  let dark = should_use_dark_mode() && is_dark_mode_allowed_for_window(hwnd);
+  let mut is_dark_mode_bigbool: BOOL = dark.into();
 
   if let Some(ver) = *WIN10_BUILD_VERSION {
     if ver < 18362 {

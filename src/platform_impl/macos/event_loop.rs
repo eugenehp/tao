@@ -20,6 +20,7 @@ use cocoa::{
   foundation::{NSAutoreleasePool, NSInteger, NSPoint, NSTimeInterval},
 };
 use crossbeam_channel::{self as channel, Receiver, Sender};
+use raw_window_handle::{AppKitDisplayHandle, RawDisplayHandle};
 use scopeguard::defer;
 
 use crate::{
@@ -98,19 +99,11 @@ impl<T: 'static> EventLoopWindowTarget<T> {
     Some(RootMonitorHandle { inner: monitor })
   }
 
-  #[cfg(feature = "rwh_05")]
   #[inline]
-  pub fn raw_display_handle_rwh_05(&self) -> rwh_05::RawDisplayHandle {
-    rwh_05::RawDisplayHandle::AppKit(rwh_05::AppKitDisplayHandle::empty())
+  pub fn raw_display_handle(&self) -> RawDisplayHandle {
+    RawDisplayHandle::AppKit(AppKitDisplayHandle::empty())
   }
 
-  #[cfg(feature = "rwh_06")]
-  #[inline]
-  pub fn raw_display_handle_rwh_06(&self) -> Result<rwh_06::RawDisplayHandle, rwh_06::HandleError> {
-    Ok(rwh_06::RawDisplayHandle::AppKit(
-      rwh_06::AppKitDisplayHandle::new(),
-    ))
-  }
   #[inline]
   pub fn cursor_position(&self) -> Result<PhysicalPosition<f64>, ExternalError> {
     let point = util::cursor_position()?;

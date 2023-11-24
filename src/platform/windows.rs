@@ -6,6 +6,7 @@
 
 use std::path::Path;
 
+pub use crate::platform_impl::hit_test;
 use crate::{
   dpi::PhysicalSize,
   event::DeviceId,

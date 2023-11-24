@@ -13,6 +13,10 @@ use std::{
   },
 };
 
+use raw_window_handle::{
+  AppKitDisplayHandle, AppKitWindowHandle, RawDisplayHandle, RawWindowHandle,
+};
+
 use crate::{
   dpi::{
     LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, Position, Size, Size::Logical,
@@ -32,8 +36,8 @@ use crate::{
   },
   platform_impl::set_progress_indicator,
   window::{
-    CursorIcon, Fullscreen, ProgressBarState, ResizeDirection, Theme, UserAttentionType,
-    WindowAttributes, WindowId as RootWindowId, WindowSizeConstraints,
+    CursorIcon, Fullscreen, ProgressBarState, Theme, UserAttentionType, WindowAttributes,
+    WindowId as RootWindowId, WindowSizeConstraints,
   },
 };
 use cocoa::{
@@ -55,7 +59,7 @@ use objc::{
   runtime::{Class, Object, Sel, BOOL, NO, YES},
 };
 
-use super::{util::ns_string_to_rust, view::ViewState};
+use super::util::ns_string_to_rust;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id(pub usize);
@@ -91,7 +95,6 @@ pub struct PlatformSpecificWindowBuilderAttributes {
   pub resize_increments: Option<LogicalSize<f64>>,
   pub disallow_hidpi: bool,
   pub has_shadow: bool,
-  pub traffic_light_inset: Option<Position>,
   pub automatic_tabbing: bool,
   pub tabbing_identifier: Option<String>,
 }
@@ -110,7 +113,6 @@ impl Default for PlatformSpecificWindowBuilderAttributes {
       resize_increments: None,
       disallow_hidpi: false,
       has_shadow: true,
-      traffic_light_inset: None,
       automatic_tabbing: true,
       tabbing_identifier: None,
     }
@@ -125,14 +127,6 @@ unsafe fn create_view(
   ns_view.non_nil().map(|ns_view| {
     if !pl_attribs.disallow_hidpi {
       ns_view.setWantsBestResolutionOpenGLSurface_(YES);
-    }
-
-    if let Some(position) = pl_attribs.traffic_light_inset {
-      let state_ptr: *mut c_void = *(**ns_view).get_ivar("taoState");
-      let state = &mut *(state_ptr as *mut ViewState);
-      let scale_factor = NSWindow::backingScaleFactor(ns_window);
-      let position = position.to_logical(scale_factor);
-      state.traffic_light_inset = Some(position);
     }
 
     // On Mojave, views automatically become layer-backed shortly after being added to
@@ -880,10 +874,6 @@ impl UnownedWindow {
     Ok(())
   }
 
-  pub fn drag_resize_window(&self, _direction: ResizeDirection) -> Result<(), ExternalError> {
-    Err(ExternalError::NotSupported(NotSupportedError::new()))
-  }
-
   #[inline]
   pub fn set_ignore_cursor_events(&self, ignore: bool) -> Result<(), ExternalError> {
     unsafe {
@@ -1374,46 +1364,17 @@ impl UnownedWindow {
     Some(RootMonitorHandle { inner: monitor })
   }
 
-  #[cfg(feature = "rwh_04")]
   #[inline]
-  pub fn raw_window_handle_rwh_04(&self) -> rwh_04::RawWindowHandle {
-    let mut window_handle = rwh_04::AppKitHandle::empty();
-    window_handle.ns_window = self.ns_window();
-    window_handle.ns_view = self.ns_view();
-    rwh_04::RawWindowHandle::AppKit(window_handle)
+  pub fn raw_window_handle(&self) -> RawWindowHandle {
+    let mut window_handle = AppKitWindowHandle::empty();
+    window_handle.ns_window = *self.ns_window as *mut _;
+    window_handle.ns_view = *self.ns_view as *mut _;
+    RawWindowHandle::AppKit(window_handle)
   }
 
-  #[cfg(feature = "rwh_05")]
   #[inline]
-  pub fn raw_window_handle_rwh_05(&self) -> rwh_05::RawWindowHandle {
-    let mut window_handle = rwh_05::AppKitWindowHandle::empty();
-    window_handle.ns_window = self.ns_window();
-    window_handle.ns_view = self.ns_view();
-    rwh_05::RawWindowHandle::AppKit(window_handle)
-  }
-
-  #[cfg(feature = "rwh_05")]
-  #[inline]
-  pub fn raw_display_handle_rwh_05(&self) -> rwh_05::RawDisplayHandle {
-    rwh_05::RawDisplayHandle::AppKit(rwh_05::AppKitDisplayHandle::empty())
-  }
-
-  #[cfg(feature = "rwh_06")]
-  #[inline]
-  pub fn raw_window_handle_rwh_06(&self) -> Result<rwh_06::RawWindowHandle, rwh_06::HandleError> {
-    let window_handle = rwh_06::AppKitWindowHandle::new({
-      let ptr = self.ns_view();
-      std::ptr::NonNull::new(ptr).expect("Id<T> should never be null")
-    });
-    Ok(rwh_06::RawWindowHandle::AppKit(window_handle))
-  }
-
-  #[cfg(feature = "rwh_06")]
-  #[inline]
-  pub fn raw_display_handle_rwh_06(&self) -> Result<rwh_06::RawDisplayHandle, rwh_06::HandleError> {
-    Ok(rwh_06::RawDisplayHandle::AppKit(
-      rwh_06::AppKitDisplayHandle::new(),
-    ))
+  pub fn raw_display_handle(&self) -> RawDisplayHandle {
+    RawDisplayHandle::AppKit(AppKitDisplayHandle::empty())
   }
 
   #[inline]
@@ -1558,16 +1519,6 @@ impl WindowExtMacOS for UnownedWindow {
       self
         .ns_window
         .setHasShadow_(if has_shadow { YES } else { NO })
-    }
-  }
-
-  #[inline]
-  fn set_traffic_light_inset<P: Into<Position>>(&self, position: P) {
-    let position: Position = position.into();
-    unsafe {
-      let state_ptr: *mut c_void = *(**self.ns_view).get_ivar("taoState");
-      let state = &mut *(state_ptr as *mut ViewState);
-      state.traffic_light_inset = Some(position.to_logical(self.scale_factor()));
     }
   }
 

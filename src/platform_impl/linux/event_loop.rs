@@ -15,9 +15,11 @@ use std::{
 use cairo::{RectangleInt, Region};
 use crossbeam_channel::SendError;
 use gdk::{Cursor, CursorType, EventKey, EventMask, ScrollDirection, WindowEdge, WindowState};
-use gio::Cancellable;
+use gio::{prelude::*, Cancellable};
 use glib::{source::Priority, MainContext};
-use gtk::{cairo, gdk, gio, glib, prelude::*};
+use gtk::prelude::*;
+
+use raw_window_handle::{RawDisplayHandle, WaylandDisplayHandle, XlibDisplayHandle};
 
 use crate::{
   dpi::{LogicalPosition, LogicalSize, PhysicalPosition},
@@ -28,8 +30,8 @@ use crate::{
   event_loop::{ControlFlow, EventLoopClosed, EventLoopWindowTarget as RootELW},
   keyboard::ModifiersState,
   monitor::MonitorHandle as RootMonitorHandle,
-  platform_impl::platform::{device, DEVICE_ID},
-  window::{CursorIcon, Fullscreen, ProgressBarState, ResizeDirection, WindowId as RootWindowId},
+  platform_impl::platform::{device, window::hit_test, DEVICE_ID},
+  window::{CursorIcon, Fullscreen, ProgressBarState, WindowId as RootWindowId},
 };
 
 use super::{
@@ -84,16 +86,15 @@ impl<T> EventLoopWindowTarget<T> {
     })
   }
 
-  #[cfg(feature = "rwh_05")]
-  pub fn raw_display_handle_rwh_05(&self) -> rwh_05::RawDisplayHandle {
+  pub fn raw_display_handle(&self) -> RawDisplayHandle {
     if self.is_wayland() {
-      let mut display_handle = rwh_05::WaylandDisplayHandle::empty();
+      let mut display_handle = WaylandDisplayHandle::empty();
       display_handle.display = unsafe {
         gdk_wayland_sys::gdk_wayland_display_get_wl_display(self.display.as_ptr() as *mut _)
       };
-      rwh_05::RawDisplayHandle::Wayland(display_handle)
+      RawDisplayHandle::Wayland(display_handle)
     } else {
-      let mut display_handle = rwh_05::XlibDisplayHandle::empty();
+      let mut display_handle = XlibDisplayHandle::empty();
       unsafe {
         if let Ok(xlib) = x11_dl::xlib::Xlib::open() {
           let display = (xlib.XOpenDisplay)(std::ptr::null());
@@ -102,31 +103,7 @@ impl<T> EventLoopWindowTarget<T> {
         }
       }
 
-      rwh_05::RawDisplayHandle::Xlib(display_handle)
-    }
-  }
-
-  #[cfg(feature = "rwh_06")]
-  pub fn raw_display_handle_rwh_06(&self) -> Result<rwh_06::RawDisplayHandle, rwh_06::HandleError> {
-    if self.is_wayland() {
-      let display = unsafe {
-        gdk_wayland_sys::gdk_wayland_display_get_wl_display(self.display.as_ptr() as *mut _)
-      };
-      let display = unsafe { std::ptr::NonNull::new_unchecked(display) };
-      let display_handle = rwh_06::WaylandDisplayHandle::new(display);
-      Ok(rwh_06::RawDisplayHandle::Wayland(display_handle))
-    } else {
-      unsafe {
-        if let Ok(xlib) = x11_dl::xlib::Xlib::open() {
-          let display = (xlib.XOpenDisplay)(std::ptr::null());
-          let screen = (xlib.XDefaultScreen)(display) as _;
-          let display = std::ptr::NonNull::new_unchecked(display as _);
-          let display_handle = rwh_06::XlibDisplayHandle::new(Some(display), screen);
-          Ok(rwh_06::RawDisplayHandle::Xlib(display_handle))
-        } else {
-          Err(rwh_06::HandleError::Unavailable)
-        }
-      }
+      RawDisplayHandle::Xlib(display_handle)
     }
   }
 
@@ -262,7 +239,7 @@ impl<T: 'static> EventLoop<T> {
             }
           }
           WindowRequest::Focus => {
-            window.present_with_time(gdk::ffi::GDK_CURRENT_TIME as _);
+            window.present_with_time(gdk_sys::GDK_CURRENT_TIME as _);
           }
           WindowRequest::Resizable(resizable) => window.set_resizable(resizable),
           WindowRequest::Closable(closable) => window.set_deletable(closable),
@@ -288,22 +265,6 @@ impl<T: 'static> EventLoop<T> {
             {
               let (_, x, y) = cursor.position();
               window.begin_move_drag(1, x, y, 0);
-            }
-          }
-          WindowRequest::DragResizeWindow(direction) => {
-            if let Some(cursor) = window
-              .display()
-              .default_seat()
-              .and_then(|seat| seat.pointer())
-            {
-              let (_, x, y) = cursor.position();
-              window.begin_resize_drag(
-                direction.to_gtk_edge(),
-                1,
-                x,
-                y,
-                gtk::gdk::ffi::GDK_CURRENT_TIME as _,
-              );
             }
           }
           WindowRequest::Fullscreen(fullscreen) => match fullscreen {
@@ -355,9 +316,49 @@ impl<T: 'static> EventLoop<T> {
             if let Some(gdk_window) = window.window() {
               let display = window.display();
               match cursor {
-                Some(cr) => {
-                  gdk_window.set_cursor(Cursor::from_name(&display, cr.to_str()).as_ref())
-                }
+                Some(cr) => gdk_window.set_cursor(
+                  Cursor::from_name(
+                    &display,
+                    match cr {
+                      CursorIcon::Crosshair => "crosshair",
+                      CursorIcon::Hand => "pointer",
+                      CursorIcon::Arrow => "arrow",
+                      CursorIcon::Move => "move",
+                      CursorIcon::Text => "text",
+                      CursorIcon::Wait => "wait",
+                      CursorIcon::Help => "help",
+                      CursorIcon::Progress => "progress",
+                      CursorIcon::NotAllowed => "not-allowed",
+                      CursorIcon::ContextMenu => "context-menu",
+                      CursorIcon::Cell => "cell",
+                      CursorIcon::VerticalText => "vertical-text",
+                      CursorIcon::Alias => "alias",
+                      CursorIcon::Copy => "copy",
+                      CursorIcon::NoDrop => "no-drop",
+                      CursorIcon::Grab => "grab",
+                      CursorIcon::Grabbing => "grabbing",
+                      CursorIcon::AllScroll => "all-scroll",
+                      CursorIcon::ZoomIn => "zoom-in",
+                      CursorIcon::ZoomOut => "zoom-out",
+                      CursorIcon::EResize => "e-resize",
+                      CursorIcon::NResize => "n-resize",
+                      CursorIcon::NeResize => "ne-resize",
+                      CursorIcon::NwResize => "nw-resize",
+                      CursorIcon::SResize => "s-resize",
+                      CursorIcon::SeResize => "se-resize",
+                      CursorIcon::SwResize => "sw-resize",
+                      CursorIcon::WResize => "w-resize",
+                      CursorIcon::EwResize => "ew-resize",
+                      CursorIcon::NsResize => "ns-resize",
+                      CursorIcon::NeswResize => "nesw-resize",
+                      CursorIcon::NwseResize => "nwse-resize",
+                      CursorIcon::ColResize => "col-resize",
+                      CursorIcon::RowResize => "row-resize",
+                      CursorIcon::Default => "default",
+                    },
+                  )
+                  .as_ref(),
+                ),
                 None => gdk_window
                   .set_cursor(Cursor::for_display(&display, CursorType::BlankCursor).as_ref()),
               }
@@ -405,20 +406,24 @@ impl<T: 'static> EventLoop<T> {
               if !window.is_decorated() && window.is_resizable() && !window.is_maximized() {
                 if let Some(window) = window.window() {
                   let (cx, cy) = event.root();
-                  let (left, top) = window.position();
-                  let (w, h) = (window.width(), window.height());
-                  let (right, bottom) = (left + w, top + h);
-                  let edge = crate::window::hit_test(
-                    (left, top, right, bottom),
-                    cx as _,
-                    cy as _,
-                    window.scale_factor() as _,
+                  let edge = hit_test(&window, cx, cy);
+                  window.set_cursor(
+                    Cursor::from_name(
+                      &window.display(),
+                      match edge {
+                        WindowEdge::North => "n-resize",
+                        WindowEdge::South => "s-resize",
+                        WindowEdge::East => "e-resize",
+                        WindowEdge::West => "w-resize",
+                        WindowEdge::NorthWest => "nw-resize",
+                        WindowEdge::NorthEast => "ne-resize",
+                        WindowEdge::SouthEast => "se-resize",
+                        WindowEdge::SouthWest => "sw-resize",
+                        _ => "default",
+                      },
+                    )
+                    .as_ref(),
                   );
-                  let edge = match &edge {
-                    Some(e) => e.to_cursor_str(),
-                    None => "default",
-                  };
-                  window.set_cursor(Cursor::from_name(&window.display(), edge).as_ref());
                 }
               }
               glib::Propagation::Proceed
@@ -427,25 +432,14 @@ impl<T: 'static> EventLoop<T> {
               if !window.is_decorated() && window.is_resizable() && event.button() == 1 {
                 if let Some(window) = window.window() {
                   let (cx, cy) = event.root();
-                  let (left, top) = window.position();
-                  let (w, h) = (window.width(), window.height());
-                  let (right, bottom) = (left + w, top + h);
-                  let edge = crate::window::hit_test(
-                    (left, top, right, bottom),
-                    cx as _,
-                    cy as _,
-                    window.scale_factor() as _,
-                  )
-                  .map(|d| d.to_gtk_edge())
-                  // we return `WindowEdge::__Unknown` to be ignored later.
-                  // we must return 8 or bigger, otherwise it will be the same as one of the other 7 variants of `WindowEdge` enum.
-                  .unwrap_or(WindowEdge::__Unknown(8));
+                  let result = hit_test(&window, cx, cy);
+
                   // Ignore the `__Unknown` variant so the window receives the click correctly if it is not on the edges.
-                  match edge {
+                  match result {
                     WindowEdge::__Unknown(_) => (),
                     _ => {
                       // FIXME: calling `window.begin_resize_drag` uses the default cursor, it should show a resizing cursor instead
-                      window.begin_resize_drag(edge, 1, cx as i32, cy as i32, event.time())
+                      window.begin_resize_drag(result, 1, cx as i32, cy as i32, event.time())
                     }
                   }
                 }
@@ -458,25 +452,13 @@ impl<T: 'static> EventLoop<T> {
                 if let Some(window) = window.window() {
                   if let Some((cx, cy)) = event.root_coords() {
                     if let Some(device) = event.device() {
-                      let (left, top) = window.position();
-                      let (w, h) = (window.width(), window.height());
-                      let (right, bottom) = (left + w, top + h);
-                      let edge = crate::window::hit_test(
-                        (left, top, right, bottom),
-                        cx as _,
-                        cy as _,
-                        window.scale_factor() as _,
-                      )
-                      .map(|d| d.to_gtk_edge())
-                      // we return `WindowEdge::__Unknown` to be ignored later.
-                      // we must return 8 or bigger, otherwise it will be the same as one of the other 7 variants of `WindowEdge` enum.
-                      .unwrap_or(WindowEdge::__Unknown(8));
+                      let result = hit_test(&window, cx, cy);
 
                       // Ignore the `__Unknown` variant so the window receives the click correctly if it is not on the edges.
-                      match edge {
+                      match result {
                         WindowEdge::__Unknown(_) => (),
                         _ => window.begin_resize_drag_for_device(
-                          edge,
+                          result,
                           &device,
                           0,
                           cx as i32,
@@ -1100,74 +1082,4 @@ fn is_main_thread() -> bool {
 #[cfg(target_os = "netbsd")]
 fn is_main_thread() -> bool {
   std::thread::current().name() == Some("main")
-}
-
-impl CursorIcon {
-  fn to_str(&self) -> &str {
-    match self {
-      CursorIcon::Crosshair => "crosshair",
-      CursorIcon::Hand => "pointer",
-      CursorIcon::Arrow => "arrow",
-      CursorIcon::Move => "move",
-      CursorIcon::Text => "text",
-      CursorIcon::Wait => "wait",
-      CursorIcon::Help => "help",
-      CursorIcon::Progress => "progress",
-      CursorIcon::NotAllowed => "not-allowed",
-      CursorIcon::ContextMenu => "context-menu",
-      CursorIcon::Cell => "cell",
-      CursorIcon::VerticalText => "vertical-text",
-      CursorIcon::Alias => "alias",
-      CursorIcon::Copy => "copy",
-      CursorIcon::NoDrop => "no-drop",
-      CursorIcon::Grab => "grab",
-      CursorIcon::Grabbing => "grabbing",
-      CursorIcon::AllScroll => "all-scroll",
-      CursorIcon::ZoomIn => "zoom-in",
-      CursorIcon::ZoomOut => "zoom-out",
-      CursorIcon::EResize => "e-resize",
-      CursorIcon::NResize => "n-resize",
-      CursorIcon::NeResize => "ne-resize",
-      CursorIcon::NwResize => "nw-resize",
-      CursorIcon::SResize => "s-resize",
-      CursorIcon::SeResize => "se-resize",
-      CursorIcon::SwResize => "sw-resize",
-      CursorIcon::WResize => "w-resize",
-      CursorIcon::EwResize => "ew-resize",
-      CursorIcon::NsResize => "ns-resize",
-      CursorIcon::NeswResize => "nesw-resize",
-      CursorIcon::NwseResize => "nwse-resize",
-      CursorIcon::ColResize => "col-resize",
-      CursorIcon::RowResize => "row-resize",
-      CursorIcon::Default => "default",
-    }
-  }
-}
-
-impl ResizeDirection {
-  fn to_cursor_str(&self) -> &str {
-    match self {
-      ResizeDirection::East => "e-resize",
-      ResizeDirection::North => "n-resize",
-      ResizeDirection::NorthEast => "ne-resize",
-      ResizeDirection::NorthWest => "nw-resize",
-      ResizeDirection::South => "s-resize",
-      ResizeDirection::SouthEast => "se-resize",
-      ResizeDirection::SouthWest => "sw-resize",
-      ResizeDirection::West => "w-resize",
-    }
-  }
-
-  fn to_gtk_edge(&self) -> WindowEdge {
-    match self {
-      ResizeDirection::East => WindowEdge::East,
-      ResizeDirection::North => WindowEdge::North,
-      ResizeDirection::NorthEast => WindowEdge::NorthEast,
-      ResizeDirection::NorthWest => WindowEdge::NorthWest,
-      ResizeDirection::South => WindowEdge::South,
-      ResizeDirection::SouthEast => WindowEdge::SouthEast,
-      ResizeDirection::SouthWest => WindowEdge::SouthWest,
-      ResizeDirection::West => WindowEdge::West,
-    }
-  }
 }
