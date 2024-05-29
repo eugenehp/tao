@@ -21,6 +21,7 @@
 
 pub mod android;
 pub mod ios;
+pub mod visionos;
 pub mod linux;
 pub mod macos;
 pub mod run_return;

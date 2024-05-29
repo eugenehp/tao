@@ -18,7 +18,7 @@ use crate::{
   event::Event,
   event_loop::{ControlFlow, EventLoopClosed, EventLoopWindowTarget as RootEventLoopWindowTarget},
   monitor::MonitorHandle as RootMonitorHandle,
-  platform::ios::Idiom,
+  platform::visionos::Idiom,
 };
 
 use crate::platform_impl::platform::{
@@ -170,7 +170,7 @@ impl<T: 'static> EventLoop<T> {
   }
 }
 
-// EventLoopExtIOS
+// EventLoopExtVisionOS
 impl<T: 'static> EventLoop<T> {
   pub fn idiom(&self) -> Idiom {
     // guaranteed to be on main thread

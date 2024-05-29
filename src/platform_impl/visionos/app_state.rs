@@ -33,13 +33,13 @@ use crate::{
 
 macro_rules! bug {
     ($($msg:tt)*) => {
-        panic!("tao iOS bug, file an issue: {}", format!($($msg)*))
+        panic!("tao visionOS bug, file an issue: {}", format!($($msg)*))
     };
 }
 
 macro_rules! bug_assert {
     ($test:expr, $($msg:tt)*) => {
-        assert!($test, "tao iOS bug, file an issue: {}", format!($($msg)*))
+        assert!($test, "tao visionOS bug, file an issue: {}", format!($($msg)*))
     };
 }
 
@@ -453,8 +453,8 @@ impl AppState {
       }
       (_, ControlFlow::ExitWithCode(_)) => {
         // https://developer.apple.com/library/archive/qa/qa1561/_index.html
-        // it is not possible to quit an iOS app gracefully and programatically
-        warn!("`ControlFlow::Exit` ignored on iOS");
+        // it is not possible to quit an visionOS app gracefully and programatically
+        warn!("`ControlFlow::Exit` ignored on visionOS");
         self.control_flow = old
       }
     }
@@ -571,7 +571,7 @@ pub unsafe fn did_finish_launching() {
       // offcenter and sized incorrectly. Additionally, to fix orientation issues, we
       // gotta reset the `rootViewController`.
       //
-      // relevant iOS log:
+      // relevant visionOS log:
       // ```
       // [ApplicationLifecycle] Windows were created before application initialzation
       // completed. This may result in incorrect visual appearance.
@@ -979,7 +979,7 @@ macro_rules! os_capabilities {
             $(#[$attr])*
             pub fn $error_name(&self, extra_msg: &str) {
                 log::warn!(
-                    concat!("`", $objc_call, "` requires iOS {}.{}+. This device is running iOS {}.{}.{}. {}"),
+                    concat!("`", $objc_call, "` requires visionOS {}.{}+. This device is running visionOS {}.{}.{}. {}"),
                     $major, $minor, self.os_version.major, self.os_version.minor, self.os_version.patch,
                     extra_msg
                 )

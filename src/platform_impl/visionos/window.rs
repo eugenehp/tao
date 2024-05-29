@@ -15,7 +15,7 @@ use crate::{
   event::{Event, WindowEvent},
   icon::Icon,
   monitor::MonitorHandle as RootMonitorHandle,
-  platform::ios::{MonitorHandleExtIOS, ScreenEdge, ValidOrientations},
+  platform::visionos::{MonitorHandleExtVisionOS, ScreenEdge, ValidOrientations},
   platform_impl::platform::{
     app_state,
     event_loop::{self, EventProxy, EventWrapper},
@@ -570,7 +570,7 @@ impl Window {
   }
 }
 
-// WindowExtIOS
+// WindowExtVisionOS
 impl Inner {
   pub fn ui_window(&self) -> id {
     self.window
@@ -586,7 +586,7 @@ impl Inner {
     unsafe {
       assert!(
         dpi::validate_scale_factor(scale_factor),
-        "`WindowExtIOS::set_scale_factor` received an invalid hidpi factor"
+        "`WindowExtVisionOS::set_scale_factor` received an invalid hidpi factor"
       );
       let scale_factor = scale_factor as CGFloat;
       let () = msg_send![self.view, setContentScaleFactor: scale_factor];

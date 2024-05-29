@@ -10,7 +10,7 @@ use objc::{runtime::Object, Encode, Encoding};
 
 use crate::{
   dpi::LogicalSize,
-  platform::ios::{Idiom, ScreenEdge, ValidOrientations},
+  platform::visionos::{Idiom, ScreenEdge, ValidOrientations},
 };
 
 pub type id = *mut Object;

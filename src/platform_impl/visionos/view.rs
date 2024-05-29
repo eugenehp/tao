@@ -12,7 +12,7 @@ use objc::{
 use crate::{
   dpi::PhysicalPosition,
   event::{DeviceId as RootDeviceId, Event, Force, Touch, TouchPhase, WindowEvent},
-  platform::ios::MonitorHandleExtIOS,
+  platform::visionos::MonitorHandleExtVisionOS,
   platform_impl::platform::{
     app_state::{self, OSCapabilities},
     event_loop::{self, EventProxy, EventWrapper},
