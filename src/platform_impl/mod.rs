@@ -23,11 +23,15 @@ mod platform;
 #[cfg(target_os = "ios")]
 #[path = "ios/mod.rs"]
 mod platform;
+#[cfg(target_os = "visionos")]
+#[path = "visionos/mod.rs"]
+mod platform;
 
 pub use platform::*;
 
 #[cfg(all(
   not(target_os = "ios"),
+  not(target_os = "visionos"),
   not(target_os = "windows"),
   not(target_os = "linux"),
   not(target_os = "macos"),

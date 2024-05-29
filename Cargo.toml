@@ -102,7 +102,7 @@ ndk-sys = "0.4"
 ndk-context = "0.1"
 tao-macros = { version = "0.1.0", path = "./tao-macros" }
 
-[target."cfg(any(target_os = \"ios\", target_os = \"macos\"))".dependencies]
+[target."cfg(any(target_os = \"ios\", target_os = \"visionos\", target_os = \"macos\"))".dependencies]
 objc = "0.2"
 
 [target."cfg(target_os = \"macos\")".dependencies]
