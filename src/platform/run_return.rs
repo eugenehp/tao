@@ -2,7 +2,7 @@
 // Copyright 2021-2023 Tauri Programme within The Commons Conservancy
 // SPDX-License-Identifier: Apache-2.0
 
-#![cfg(not(target_os = "ios"))]
+#![cfg(not(any(target_os = "ios", target_os = "visionos")))]
 
 use crate::{
   event::Event,

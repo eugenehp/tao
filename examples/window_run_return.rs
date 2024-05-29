@@ -55,6 +55,7 @@ fn main() {
 
 #[cfg(any(
   target_os = "ios",
+  target_os = "visionos",
   target_os = "android",
   target_os = "linux",
   target_os = "dragonfly",
