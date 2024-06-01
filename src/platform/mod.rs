@@ -8,6 +8,7 @@
 //!
 //!  - `android`
 //!  - `ios`
+//!  - `visionos`
 //!  - `macos`
 //!  - `unix`
 //!  - `linux`
