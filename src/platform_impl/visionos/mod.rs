@@ -79,6 +79,7 @@ mod ffi;
 mod keycode;
 mod monitor;
 mod view;
+mod scene;
 mod window;
 
 use std::fmt;

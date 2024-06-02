@@ -9,9 +9,6 @@ use objc::{
   runtime::{Class, Object, Sel, BOOL, NO, YES},
 };
 
-use objc::{msg_send, msg_send_id, sel};
-
-
 use crate::{
   dpi::PhysicalPosition,
   event::{DeviceId as RootDeviceId, Event, Force, Touch, TouchPhase, WindowEvent},
@@ -559,21 +556,21 @@ pub fn create_delegate_class() {
   }
   
   // inspired by cacao
-  extern "C" fn configuration_for_scene_session(this: &Object, _: Sel, _: id, session: id, opts: id) -> id {
+  extern "C" fn configuration_for_scene_session(_this: &Object, _: Sel, _: id, _session: id, _opts: id) -> id {
     unsafe {
       let name = NSStringRust::alloc(nil).init_str("DefaultScene");
       let role = NSStringRust::alloc(nil).init_str("UIWindowSceneSessionRoleApplication");
 
       let cls = class!(UISceneConfiguration);
-      let mut config = msg_send_id![cls, configurationWithName: &*name, sessionRole: &*role];
+      let config:*mut Object = msg_send![cls, configurationWithName: name sessionRole: role];
+      // let mut config = msg_send_id![cls, configurationWithName: &*name, sessionRole: &*role];
 
-      let _: () = msg_send![&mut config, setSceneClass: class!(UIWindowScene)];
+      let _: () = msg_send![config, setSceneClass: class!(UIWindowScene)];
 
-      // TODO: create standalone scene.rs with UIWindowSceneDelegate
       let ui_responder = class!(UIResponder);
-      let mut window_delegate = ClassDecl::new("TaoWindowSceneDelegate", ui_responder).expect("Failed to declare class `RSTWindowSceneDelegate`");
+      let mut window_delegate = ClassDecl::new("TaoWindowSceneDelegate", ui_responder).expect("Failed to declare class `TaoWindowSceneDelegate`");
+      let _: () = msg_send![config, setDelegateClass: &window_delegate];
       window_delegate.register();
-      let _: () = msg_send![&mut config, setDelegateClass: window_delegate];
 
       config
     }

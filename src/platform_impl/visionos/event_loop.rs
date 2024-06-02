@@ -31,7 +31,7 @@ use crate::platform_impl::platform::{
     CFRunLoopSourceInvalidate, CFRunLoopSourceRef, CFRunLoopSourceSignal, CFRunLoopWakeUp,
     NSStringRust, UIApplicationMain, UIUserInterfaceIdiom,
   },
-  monitor, view, MonitorHandle,
+  monitor, view, scene, MonitorHandle,
 };
 
 #[non_exhaustive]
@@ -114,6 +114,7 @@ impl<T: 'static> EventLoop<T> {
                  `EventLoopProxy` might be helpful"
       );
       SINGLETON_INIT = true;
+      scene::create_delegate_class();
       view::create_delegate_class();
     }
 
