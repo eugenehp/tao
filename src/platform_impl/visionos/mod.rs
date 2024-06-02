@@ -45,7 +45,7 @@
 //!
 //! iOS environment is very different from other platforms and you must be very
 //! careful with it's events. Familiarize yourself with
-//! [app lifecycle](https://developer.apple.com/library/ios/documentation/UIKit/Reference/UIApplicationDelegate_Protocol/).
+//! [app lifecycle](https://developer.apple.com/documentation/uikit/uiapplicationdelegate).
 //!
 //!
 //! This is how those event are represented in tao:

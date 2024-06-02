@@ -9,6 +9,9 @@ use objc::{
   runtime::{Class, Object, Sel, BOOL, NO, YES},
 };
 
+use objc::{msg_send, msg_send_id, sel};
+
+
 use crate::{
   dpi::PhysicalPosition,
   event::{DeviceId as RootDeviceId, Event, Force, Touch, TouchPhase, WindowEvent},
@@ -18,7 +21,7 @@ use crate::{
     event_loop::{self, EventProxy, EventWrapper},
     ffi::{
       id, nil, CGFloat, CGPoint, CGRect, UIForceTouchCapability, UIInterfaceOrientationMask,
-      UIRectEdge, UITouchPhase, UITouchType,
+      UIRectEdge, UITouchPhase, UITouchType, NSStringRust
     },
     window::PlatformSpecificWindowBuilderAttributes,
     DeviceId,
@@ -554,6 +557,27 @@ pub fn create_delegate_class() {
     }
     YES
   }
+  
+  // inspired by cacao
+  extern "C" fn configuration_for_scene_session(this: &Object, _: Sel, _: id, session: id, opts: id) -> id {
+    unsafe {
+      let name = NSStringRust::alloc(nil).init_str("DefaultScene");
+      let role = NSStringRust::alloc(nil).init_str("UIWindowSceneSessionRoleApplication");
+
+      let cls = class!(UISceneConfiguration);
+      let mut config = msg_send_id![cls, configurationWithName: &*name, sessionRole: &*role];
+
+      let _: () = msg_send![&mut config, setSceneClass: class!(UIWindowScene)];
+
+      // TODO: create standalone scene.rs with UIWindowSceneDelegate
+      let ui_responder = class!(UIResponder);
+      let mut window_delegate = ClassDecl::new("TaoWindowSceneDelegate", ui_responder).expect("Failed to declare class `RSTWindowSceneDelegate`");
+      window_delegate.register();
+      let _: () = msg_send![&mut config, setDelegateClass: window_delegate];
+
+      config
+    }
+  }
 
   // universal links
   extern "C" fn application_continue(
@@ -630,6 +654,12 @@ pub fn create_delegate_class() {
       sel!(application:didFinishLaunchingWithOptions:),
       did_finish_launching as extern "C" fn(&mut Object, Sel, id, id) -> BOOL,
     );
+
+    // Scenes
+    decl.add_method(
+      sel!(application:configurationForConnectingSceneSession:options:),
+      configuration_for_scene_session as extern "C" fn(&Object, Sel, id, id, id) -> _
+  );
 
     decl.add_method(
       sel!(application:continueUserActivity:restorationHandler:),

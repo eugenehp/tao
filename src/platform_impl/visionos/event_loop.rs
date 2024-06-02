@@ -137,8 +137,10 @@ impl<T: 'static> EventLoop<T> {
   where
     F: 'static + FnMut(Event<'_, T>, &RootEventLoopWindowTarget<T>, &mut ControlFlow),
   {
+    println!("======= tao - event_loop - run ||| start");
     unsafe {
       let application: *mut c_void = msg_send![class!(UIApplication), sharedApplication];
+      println!("======= tao - event_loop - run ||| received application");
       assert_eq!(
         application,
         ptr::null_mut(),
@@ -146,10 +148,13 @@ impl<T: 'static> EventLoop<T> {
                  `EventLoop` cannot be `run` after a call to `UIApplicationMain` on iOS\n\
                  Note: `EventLoop::run` calls `UIApplicationMain` on iOS"
       );
+      println!("======= tao - event_loop - run ||| before launch");
       app_state::will_launch(Box::new(EventLoopHandler {
         f: event_handler,
         event_loop: self.window_target,
       }));
+
+      println!("======= tao - event_loop - run ||| before UIApplicationMain");
 
       UIApplicationMain(
         0,
